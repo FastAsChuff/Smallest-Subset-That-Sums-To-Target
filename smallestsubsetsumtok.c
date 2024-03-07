@@ -23,8 +23,13 @@ int16_t **minsubsetsumsize_init(int16_t arrsize, int64_t max_target_sum) {
      results[k][j] > arrsize means target sum not possible
   */
   int16_t **results = malloc(((int32_t)arrsize+1)*sizeof(int16_t*));
-  for (int i=0; i<=arrsize; i++) {
+  if (results == NULL) return NULL;
+  for (int16_t i=0; i<=arrsize; i++) {
     results[i] = calloc(max_target_sum+1, sizeof(int16_t));
+    if (results[i] == NULL) {
+      for (int16_t j=i-1; j>=0; j--) free(results[j]);
+      return NULL;
+    }
   }  
   return results;  
 }
@@ -34,23 +39,10 @@ void minsubsetsumsize_free(int16_t **results, int16_t arrsize) {
   free(results);
 }
 
-int16_t minsubsetsumsize(int16_t **results, int64_t *arr, int16_t arrsize, int64_t target_sum, int16_t k) {
-  int16_t result1, result2;
-  if (results[k][target_sum] == 0) {
-    result1 = minsubsetsumsize(results, arr, arrsize, target_sum, k-1);
-    if (target_sum > arr[k-1]) {
-      result2 = 1+minsubsetsumsize(results, arr, arrsize, target_sum - arr[k-1], k-1);
-    } else {
-      result2 = arrsize+1;
-    }
-    results[k][target_sum] = (result1 < result2 ? result1 : result2);
-  }
-  return results[k][target_sum];
-}
-
 void popresultsarray(int16_t **results, int64_t *arr, int16_t arrsize, int64_t max_target_sum) {
   int64_t j;
   int16_t k, kk;
+  int16_t result1, result2;
   for (j=1; j<=max_target_sum; j++) {
     results[1][j] = arrsize+1;
   }
@@ -62,7 +54,13 @@ void popresultsarray(int16_t **results, int64_t *arr, int16_t arrsize, int64_t m
   for (k=1; k<=arrsize; k++) {
     for (j=1; j<=max_target_sum; j++) {
       if (results[k][j] == 0) {
-        minsubsetsumsize(results, arr, arrsize, j, k);
+        result1 = results[k-1][j];
+        if (j > arr[k-1]) {
+          result2 = 1+results[k-1][j - arr[k-1]];
+        } else {
+          result2 = arrsize+1;
+        }
+        results[k][j] = (result1 < result2 ? result1 : result2);
       }
     }
   }
@@ -70,13 +68,14 @@ void popresultsarray(int16_t **results, int64_t *arr, int16_t arrsize, int64_t m
 
 int64_t *findsubset(int16_t **results, int64_t *arr, int16_t arrsize, int64_t target_sum) {
 // Returns subset of minimal size with element sum equal to target_sum or NULL if target_sum not acheivable.
-  int16_t result = minsubsetsumsize(results, arr, arrsize, target_sum, arrsize);
+  int16_t result = results[arrsize][target_sum];
   if (result > arrsize) return NULL;
   int16_t k, result1=result;
   int64_t *subset = calloc(result, sizeof(int64_t));
+  if (subset == NULL) return NULL;
   k = arrsize-1;
   while (result) {
-    if (k > 0) result1 = minsubsetsumsize(results, arr, arrsize, target_sum, k);
+    if (k > 0) result1 = results[k][target_sum];
     if ((k == 0) || (result1 > result)) {
       target_sum -= arr[k];
       result--;
@@ -91,6 +90,7 @@ int64_t *findsubset(int16_t **results, int64_t *arr, int16_t arrsize, int64_t ta
 int main(int argc, char*argv[]) {
   if (argc <= 4) {
     printf("This program finds a minimally sized subset of a set of n positive integers 0 < a_i < 2^63 which has a target element sum k using dynamic programming.\n");
+    printf("If there are no solutions that sum to the target, then it solves for the largest k below the original target.\n");
     printf("Space and time complexity is approx. O(nk).\n");
     printf("Author: Simon Goater Mar 2024.\n");
     printf("Usage: %s maxbytes n k a1 ... an\n", argv[0]);
@@ -116,7 +116,7 @@ int main(int argc, char*argv[]) {
   }
   int64_t *arr = malloc(arrsize*sizeof(int64_t));
   __int128 arrsum = 0;
-  int32_t j = 0;
+  int64_t j = 0;
   for (int32_t i=0; i<arrsize; i++) {
     arr[j] = atol(argv[4+i]);
     if (arr[j] <= 0) {
@@ -150,14 +150,32 @@ int main(int argc, char*argv[]) {
     exit(1);
   }
   int16_t **results = minsubsetsumsize_init(arrsize, target_sum);
+  int16_t result;
+  if (results == NULL) {
+    printf("Error allocating memory!\n");
+    free(arr);
+    exit(1);
+  }
   printf("Using array of %li bytes\n", (int64_t)resultsbytes);
   popresultsarray(results, arr, arrsize, target_sum);
-  int16_t result = minsubsetsumsize(results, arr, arrsize, target_sum, arrsize);
+  for (j=target_sum; j > 0; j--) {
+    result = results[arrsize][j];
+    if (result <= arrsize) break;
+  }
   if (result <= arrsize) {
-    printf("Min. subset size which sums to %li is %i\n", target_sum, result);
-    int64_t *subset = findsubset(results, arr, arrsize, target_sum);
-    printarray(subset, result);
-    free(subset);
+    if (j == target_sum) {
+      printf("Min. subset size which sums to %li is %i\n", target_sum, result);
+    } else {
+      printf("No solution to target %li.\n", target_sum);
+      printf("Largest target below %li with a solution is %li which has minimum subset size %i.\n", target_sum, j, result);
+    }
+    int64_t *subset = findsubset(results, arr, arrsize, j);
+    if (subset == NULL) {
+      printf("Error finding example subset!\n");
+    } else {
+      printarray(subset, result);
+      free(subset);
+    }
   } else {
     printf("No solution.\n");
   }
@@ -171,9 +189,9 @@ Min. subset size which sums to 54321 is 8
 23343 4433 5535 7675 3111 3232 449 6543 
 Sum = 54321
 
-real	0m0.021s
-user	0m0.016s
-sys	0m0.004s
+real	0m0.009s
+user	0m0.000s
+sys	0m0.009s
 
 time ./smallestsubsetsumtok.bin 2000000000 200 9999 [list of first 200 primes]
 Using array of 4020000 bytes
@@ -181,9 +199,9 @@ Min. subset size which sums to 9999 is 9
 1087 1091 1093 1097 1109 1117 1123 1129 1153 
 Sum = 9999
 
-real	0m0.035s
-user	0m0.030s
-sys	0m0.004s
+real	0m0.015s
+user	0m0.009s
+sys	0m0.005s
 
 time ./smallestsubsetsumtok.bin 2500000000 500 2222222 [list of first 500 squares]
 Using array of 2226667446 bytes
@@ -191,7 +209,7 @@ Min. subset size which sums to 2222222 is 10
 185761 219961 222784 223729 224676 225625 228484 229441 230400 231361 
 Sum = 2222222
 
-real	0m14.275s
-user	0m12.872s
-sys	0m1.353s
+real	0m4.053s
+user	0m2.731s
+sys	0m1.306s
 */
